@@ -1,0 +1,148 @@
+import{o as e,s as t,u as n}from"./projects-CnSkbXN_.js";import{B as r,Dn as i,Ft as a,Hn as o,I as s,It as c,Lt as l,Mt as u,Pt as d,S as f,Vn as p,Vt as ee,Xn as te,ar as m,br as h,bt as g,c as ne,ct as re,et as ie,gt as _,h as v,k as ae,kn as oe,lt as se,o as ce,q as le,u as ue,vt as de,wr as fe,wt as pe,yr as y,yt as b,zn as me}from"./three.core-rbApIkjy.js";import{n as he,t as ge}from"./three.module-BfDJo5X8.js";import{t as _e}from"./RoomEnvironment-SJxtcJk8.js";var x=`
+varying vec2 vUv;
+varying vec3 vN;
+varying vec3 vP;
+void main() {
+  vUv = uv;
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vP = wp.xyz;
+  vN = normalize(mat3(modelMatrix) * normal);
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`,S=`
+uniform sampler2D uTex;
+uniform sampler2D uOSD;
+uniform float uTime, uPower, uTear, uStatic, uRoll, uFlash, uOSDa, uHover, uNight, uRefl, uGain, uFade, uCrt;
+uniform vec2 uPic;
+uniform vec3 uTint;
+varying vec2 vUv;
+varying vec3 vN;
+varying vec3 vP;
+
+float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+vec3 dec(vec3 c) { return pow(max(c, vec3(0.0)), vec3(2.2)); }
+float sel(vec2 q) { vec2 a = abs(q); vec2 a2 = a * a; return a2.x * a2.x * a.x + a2.y * a2.y * a.y; } // |x|^5+|y|^5
+float box(vec2 p, vec2 c, vec2 h, float soft) { vec2 d = abs(p - c) - h; return 1.0 - smoothstep(-soft, soft, max(d.x, d.y)); }
+
+// Glass reflection, kept honest: a very wide low-contrast sheen plus one crescent glint hugging the
+// upper-left rim. Both ride the reflected direction, so they drift and fade as the set turns away
+// from the key light (no window frame, no mullions: those read as a smear across the picture).
+float wrapA(float a) { return a - 6.2831853 * floor((a + 3.1415927) / 6.2831853); }
+vec3 glint(vec2 c, float rr, vec3 R) {
+  vec3 L = normalize(vec3(-0.55, 0.62, 0.56));
+  float lobe = dot(R, L);
+  float lit = mix(0.3, 1.0, smoothstep(0.15, 0.92, lobe));
+  float sheen = pow(clamp(lobe * 0.5 + 0.5, 0.0, 1.0), 7.0);
+  float want = 2.42 + clamp(R.x + 0.72, -0.7, 0.7) * 0.55;
+  float da = abs(wrapA(atan(c.y, c.x) - want));
+  float taper = pow(smoothstep(0.95, 0.0, da), 1.4);
+  float w = 0.004 + 0.03 * taper;
+  float ring = (1.0 - smoothstep(0.0, w, abs(rr - 0.885 + 0.02 * taper))) * taper;
+  // a faint second arc inside the first, like the inner face of thick glass
+  float ring2 = (1.0 - smoothstep(0.0, w * 0.6, abs(rr - 0.815 + 0.02 * taper))) * taper * 0.28;
+  return vec3(1.0, 0.985, 0.96) * ((ring + ring2) * 0.2 * lit + sheen * 0.03);
+}
+
+void main() {
+  // picture space: -1..1 at the picture edge
+  vec2 q = (vUv - 0.5) / uPic;
+  vec2 qa = q * vec2(1.0, 0.75);
+  float r2 = dot(qa, qa);
+  vec2 sE = q * (1.0 + 0.055 * r2 + 0.025 * r2 * r2); // barrel: edges bow, content pinches
+  float e = sel(sE);
+  float aa = fwidth(e) * 1.5 + 1e-4;
+  float inside = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, e);
+
+  // power-on: a dot that becomes a line that opens into the picture
+  float p = uPower;
+  float hx = mix(0.015, 1.06, smoothstep(0.0, 0.3, p));
+  float vy = mix(0.006, 1.06, pow(smoothstep(0.26, 1.0, p), 0.55));
+  float pw = fwidth(sE.y) * 1.5 + 1e-4;
+  float pm = (1.0 - smoothstep(hx - 0.02, hx, abs(sE.x))) * (1.0 - smoothstep(vy - pw, vy + pw, abs(sE.y)));
+  pm *= step(0.0005, p);
+
+  // content coordinates: tear and roll move the signal, not the tube
+  vec2 s = sE;
+  float row = floor((s.y * 0.5 + 0.5) * 120.0);
+  float tj = hash(vec2(row, floor(uTime * 50.0))) - 0.5;
+  float band = smoothstep(0.6, 1.0, sin(s.y * 5.0 - uTime * 23.0) * 0.5 + 0.5);
+  s.x += uTear * (tj * 0.16 * (0.4 + band) + 0.07 * sin(s.y * 11.0 + uTime * 41.0));
+  float yy = s.y * 0.5 + 0.5 + uRoll;
+  float seam = abs(uRoll) > 1e-4 ? fract(yy) : clamp(yy, 0.0, 1.0);
+  vec2 uv = vec2(s.x * 0.5 + 0.5, seam);
+  // gradients from the unwrapped coordinate so the roll seam never drops to a tiny mip
+  vec2 gx = dFdx(sE * 0.5), gy = dFdy(sE * 0.5);
+
+  vec2 ca = (uv - 0.5) * (0.0035 + uTear * 0.02) + vec2(uTear * 0.012, 0.0);
+  vec3 col;
+  col.r = textureGrad(uTex, uv + ca, gx, gy).r;
+  col.g = textureGrad(uTex, uv, gx, gy).g;
+  col.b = textureGrad(uTex, uv - ca, gx, gy).b;
+  col = dec(col);
+  if (uv.x < 0.0 || uv.x > 1.0) col = vec3(0.0);
+  vec3 blur = dec(textureLod(uTex, clamp(uv, 0.0, 1.0), 4.5).rgb);
+  col += blur * 0.26;
+
+  // vertical blanking bar while rolling
+  float bar = smoothstep(0.0, 0.035, seam) * smoothstep(1.0, 0.965, seam);
+  col *= mix(1.0, bar, clamp(abs(uRoll) * 25.0, 0.0, 1.0));
+
+  // on-screen display, burnt in by the set, not the signal
+  vec4 o = texture2D(uOSD, clamp(sE * 0.5 + 0.5, 0.0, 1.0));
+  float oa = o.a * (sE.y > 0.0 ? uOSDa : uHover);
+  col = mix(col, dec(o.rgb) * 1.25, oa);
+
+  // static burst
+  float n = hash(floor(sE * vec2(230.0, 172.0)) + fract(uTime * 7.13) * vec2(91.7, 37.3));
+  float n2 = hash(vec2(row, floor(uTime * 60.0)));
+  col = mix(col, vec3(n * n * 1.3 + n2 * 0.15), clamp(uStatic, 0.0, 1.0));
+
+  float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  // scanlines (fade out when finer than the display can show)
+  float ph = (sE.y * 0.5 + 0.5) * 228.0;
+  float fw = fwidth(ph);
+  float beam = 0.5 + 0.5 * cos(6.2831853 * ph);
+  float sAmt = 0.42 * uCrt * (1.0 - smoothstep(0.32, 0.7, fw));
+  col *= (1.0 - sAmt * (1.0 - beam) * (1.0 - 0.55 * clamp(lum, 0.0, 1.0))) * (1.0 + sAmt * 0.45);
+  // aperture grille triads
+  float xp = (sE.x * 0.5 + 0.5) * 3.0 * 300.0;
+  float fx = fwidth(xp);
+  vec3 tri = 0.5 + 0.5 * cos(6.2831853 * (xp / 3.0 - vec3(0.0, 1.0 / 3.0, 2.0 / 3.0)));
+  float mAmt = 0.32 * uCrt * (1.0 - smoothstep(0.28, 0.65, fx));
+  col *= mix(vec3(1.0), 0.4 + 1.2 * tri, mAmt);
+
+  float vig = 1.0 - 0.5 * pow(clamp(e, 0.0, 1.0), 1.6);
+  col *= vig;
+  float flick = 1.0 + 0.012 * sin(uTime * 113.0) + 0.006 * sin(uTime * 7.0);
+  col *= uGain * flick * (1.0 + uFlash * 1.5) * (1.0 + uHover * 0.08);
+
+  float hp = smoothstep(0.0, 0.6, p);
+  // power-on overdrive: the slit is white-hot
+  float hot = 1.0 - smoothstep(0.22, 0.85, p);
+  col = mix(col, vec3(1.6, 1.55, 1.5), hot * 0.9);
+
+  vec3 blackLevel = vec3(0.010, 0.012, 0.0145) * hp + vec3(0.002);
+  vec3 pic = blackLevel + col;
+
+  // smoked glass around the picture with the picture's halo scattering into it
+  vec3 halo = dec(textureLod(uTex, clamp(sE * 0.5 + 0.5, 0.0, 1.0), 6.5).rgb);
+  float outside = max(e - 1.0, 0.0);
+  vec3 glass = vec3(0.006, 0.007, 0.008) + (halo * 0.55 + uTint * 0.15) * exp(-outside * 3.2) * 0.42 * hp;
+
+  vec3 base = mix(glass, pic, inside * pm) * uFade;
+  // glass edge falloff toward the bezel
+  float rr = length(vUv - 0.5) * 2.0;
+  base *= 1.0 - 0.6 * smoothstep(0.82, 1.0, rr);
+
+  // glass reflection
+  vec3 N = normalize(vN);
+  vec3 V = normalize(vP - cameraPosition);
+  if (dot(N, V) > 0.0) N = -N;
+  vec3 R = reflect(V, N);
+  vec3 refl = glint(vUv - 0.5, rr, R) * uRefl;
+  refl *= 1.0 - 0.5 * smoothstep(0.9, 1.0, rr);
+
+  gl_FragColor = vec4(base + refl, 1.0);
+  #include <colorspace_fragment>
+}`;function ve(e){let t={uTex:{value:e.tex},uOSD:{value:e.osd},uTime:{value:0},uPower:{value:0},uTear:{value:0},uStatic:{value:0},uRoll:{value:0},uFlash:{value:0},uOSDa:{value:0},uHover:{value:0},uNight:{value:1},uRefl:{value:1},uGain:{value:1.5},uPic:{value:e.pic},uTint:{value:new v(0,0,0)},uFade:{value:1},uCrt:{value:1}};return new o({vertexShader:x,fragmentShader:S,uniforms:t,toneMapped:!1})}var C=n({LIP_R:()=>E,LIP_Z:()=>xe,OPEN:()=>T,PIC_H:()=>Te,PIC_W:()=>we,PIVOT_Y:()=>Ee,REEL_VERT:()=>Ve,SAG:()=>Ce,TAU:()=>w,VIS_R:()=>D,VIS_Z:()=>Se,bulgedDisc:()=>Le,createTV:()=>He,cylZ:()=>Re,frameAt:()=>M,knurl:()=>ze,latheZ:()=>j,radialTexture:()=>Be}),w=Math.PI*2,ye=960,be=720,T=_.degToRad(56),xe=Math.cos(T),E=Math.sin(T),D=.768,Se=.548,Ce=.072,we=.64,Te=we*.75,Ee=1.42,De=-1.66,O={yaw:-.4,pitch:0},Oe=350,ke=1150,Ae=new v(`#F2F0EA`),je=new v(`#0A0B0C`),Me=new v(`#141414`),Ne=new v(`#5B5E63`),k=class{x;k;c;v=0;target;constructor(e,t,n){this.x=e,this.k=t,this.c=n,this.target=e}step(e){let t=Math.max(1,Math.ceil(e/.008)),n=e/t;for(let e=0;e<t;e++){let e=-this.k*(this.x-this.target)-this.c*this.v;this.v+=e*n,this.x+=this.v*n}}get busy(){return Math.abs(this.v)>3e-4||Math.abs(this.x-this.target)>3e-4}snap(e=this.target){this.x=e,this.target=e,this.v=0}},Pe=(e,t)=>(e%t+t)%t,Fe=e=>Math.atan2(Math.sin(e),Math.cos(e)),A=_.clamp,Ie=new y;function Le(e,t,n=40,r=144){let i=[],a=[],o=[],c=[],l=new h;for(let s=0;s<=n;s++){let c=s/n*e;for(let n=0;n<=r;n++){let s=n/r*w,u=Math.cos(s)*c,d=Math.sin(s)*c;i.push(u,d,t*(1-c*c/(e*e))),l.set(2*t*u/(e*e),2*t*d/(e*e),1).normalize(),a.push(l.x,l.y,l.z),o.push(u/(2*e)+.5,d/(2*e)+.5)}}for(let e=0;e<n;e++)for(let t=0;t<r;t++){let n=e*(r+1)+t,i=n+r+1;c.push(n,i,n+1,i,i+1,n+1)}let u=new ne;return u.setAttribute(`position`,new s(i,3)),u.setAttribute(`normal`,new s(a,3)),u.setAttribute(`uv`,new s(o,2)),u.setIndex(c),u}function j(e,t=96){return new ie(e.map(([e,t])=>new y(e,t)),t).rotateX(Math.PI/2)}function Re(e,t,n,r=64){return new f(t,e,n,r).rotateX(Math.PI/2)}function ze(e,t,n){let r=new f(e,e,t,n*6,1),i=r.attributes.position;for(let t=0;t<i.count;t++){let r=i.getX(t),a=i.getZ(t);if(Math.hypot(r,a)<e*.98)continue;let o=Math.cos(Math.atan2(a,r)*n),s=1+.05*Math.sign(o)*Math.abs(o)**.55;i.setX(t,r*s),i.setZ(t,a*s)}return r.computeVertexNormals(),r.rotateX(Math.PI/2)}function M(e){let t=e.clone().normalize(),n=new h(0,1,0).addScaledVector(t,-t.y).normalize(),r=new h().crossVectors(n,t);return{x:r,y:n,z:t,m:new de().makeBasis(r,n,t)}}function Be(e){let t=document.createElement(`canvas`);t.width=t.height=256;let n=t.getContext(`2d`),r=n.createRadialGradient(128,128,0,128,128,128);for(let[t,n]of e)r.addColorStop(t,n);n.fillStyle=r,n.fillRect(0,0,256,256);let i=new ue(t);return i.colorSpace=me,i}var Ve=`precision highp float;
+attribute vec3 position;
+void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }`;function He(n,s){let f=s.reels.length?s.reels:[],ne=Math.max(1,f.length),x=w/ne,S=new he({canvas:n,alpha:!0,antialias:!0,powerPreference:`high-performance`});S.setClearColor(0,0),S.setPixelRatio(Math.min(devicePixelRatio,1.5)),S.toneMapping=7,S.toneMappingExposure=1,S.outputColorSpace=me;let C=new p,He=new ge(S);function Ue(e){let t=new _e;e&&t.traverse(e=>{let t=e;t.isMesh&&t.material.isMeshStandardMaterial&&t.material.color.setScalar(.035)});let n=(e,n,r,i,a,o)=>{let s=new b(new c(e,n),new g({color:new v().setScalar(o),side:2}));s.position.set(r,i+3.5,a),t.add(s),s.lookAt(0,0,0)};n(5.5,3.2,-5.2,4.6,6.2,e?7:5),n(.9,7.5,6.2,.6,4.4,e?9:5),n(.6,7,-7.4,.4,-3.2,e?6:3),n(4,4,0,9.5,.5,e?1.6:1.2);let r=He.fromScene(t,.03).texture;return t.traverse(e=>{let t=e;t.isMesh&&(t.geometry.dispose(),t.material.dispose())}),r}let We=Ue(!1),Ge=Ue(!0);C.environment=e.night?Ge:We;let N=new d(24,1,.1,60),Ke=new fe(ye,be,{depthBuffer:!1,generateMipmaps:!0,minFilter:se,magFilter:re}),qe={uTime:{value:0},uRes:{value:new y(ye,be)},uMouse:{value:new y(.5,.5)},uNight:{value:+!!e.night},uSeed:{value:Math.random()},uIntensity:{value:1}},Je=new c(2,2),Ye=f.map(e=>new i({vertexShader:Ve,fragmentShader:e.frag,uniforms:qe,depthTest:!1,depthWrite:!1})),Xe=new b(Je,Ye[0]??new g({color:1118481}));Xe.frustumCulled=!1;let Ze=new p;Ze.add(Xe);let Qe=new u(-1,1,1,-1,0,1);if(Ye.length>1){let e=new p;Ye.slice(1).forEach(t=>{let n=new b(Je,t);n.frustumCulled=!1,e.add(n)}),S.compileAsync(e,Qe).catch(()=>{})}let $e=new fe(3,1,{depthBuffer:!1}),et=new o({uniforms:{uTex:{value:Ke.texture}},vertexShader:`void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }`,fragmentShader:`uniform sampler2D uTex; void main() { vec2 uv = vec2(gl_FragCoord.x / 3.0, 0.5); gl_FragColor = vec4(textureLod(uTex, uv, 7.0).rgb, 1.0); }`,depthTest:!1,depthWrite:!1}),tt=new b(Je,et);tt.frustumCulled=!1;let nt=new p;nt.add(tt);let rt=new Uint8Array(12),it=!1,at=-1e9,ot=[new v,new v,new v],st=[new v,new v,new v],ct=new v,lt=document.createElement(`canvas`);lt.width=ye,lt.height=be;let ut=new ue(lt),dt=`"IBM Plex Mono", ui-monospace, Menlo, monospace`;function ft(){let e=lt.getContext(`2d`);e.clearRect(0,0,ye,be),e.shadowColor=`rgba(0,0,0,0.75)`,e.shadowOffsetX=5,e.shadowOffsetY=5,e.shadowBlur=0,e.fillStyle=`#F4F1E8`,e.textBaseline=`alphabetic`,e.textAlign=`left`,e.font=`600 34px ${dt}`,e.fillText(`CH`,92,128),e.font=`600 108px ${dt}`,e.fillText(String(R+1).padStart(2,`0`),152,168);let t=f[R];t&&(e.font=`500 32px ${dt}`,e.fillText(t.title.toUpperCase(),96,222)),e.textAlign=`right`,e.font=`600 36px ${dt}`,e.fillText(`OPEN ↗`,868,624),ut.needsUpdate=!0}let pt=new pe({color:Ae.clone(),roughness:.32,metalness:0,clearcoat:1,clearcoatRoughness:.03,envMapIntensity:1}),P=new pe({color:15922165,metalness:1,roughness:.12,envMapIntensity:1.3}),mt=new pe({color:13817305,metalness:1,roughness:.3,envMapIntensity:1.1}),ht=new pe({color:789517,roughness:.35,clearcoat:1,clearcoatRoughness:.08}),gt=new pe({color:`#E8472D`,roughness:.32,clearcoat:1,clearcoatRoughness:.06}),_t=new pe({color:Me.clone(),roughness:.55,metalness:.2}),vt=new g({color:`#2B2D30`}),yt=new g({color:`#FF6A4D`}),bt=new g({color:`#4CC38A`}),xt=new r;xt.position.y=Ee;let St=new r;St.position.y=-1.42;let Ct=new r;Ct.rotation.order=`YXZ`;let F=new r;C.add(xt),xt.add(St),St.add(Ct),Ct.add(F);let wt=[],I=(e,t)=>(e.userData.hit=t,wt.push(e),e),Tt=new b(new te(1,160,112,0,w,T,Math.PI-T).rotateX(Math.PI/2),pt);F.add(Tt);let Et=new b(new te(1,28,20,0,w,T,Math.PI-T).rotateX(Math.PI/2),new g);Et.visible=!1,F.add(I(Et,`body`));let Dt=new b(j([[.748,.518],[.77,.552],[.774,.5980000000000001],[.781,.627],[.796,.641],[E-.012,.644],[E+.006,.633],[E+.015,.6100000000000001],[E+.017,xe-.03],[E+.002,xe-.07]],160),P);Dt.material=P,Dt.material.side=2,F.add(I(Dt,`body`));let Ot=new b(new m(.772,.009,10,160),ht);Ot.position.z=.554,F.add(Ot);let kt=ve({tex:Ke.texture,osd:ut,pic:new y(we/(2*D),Te/(2*D))}),At=new b(Le(.774,Ce),kt);At.position.z=Se,F.add(I(At,`screen`));let jt=[new l(16777215,0,5,2),new l(16777215,0,5,2),new l(16777215,0,5,2)];jt[0].position.set(-.42,.06,1),jt[1].position.set(0,-.12,1.06),jt[2].position.set(.42,.06,1),jt.forEach(e=>F.add(e));let Mt=new h(.86,.36,.3).normalize(),Nt=M(Mt),Pt=(e,t)=>Mt.clone().addScaledVector(Nt.x,e).addScaledVector(Nt.y,t).normalize(),L=new r;L.position.copy(Mt).multiplyScalar(.986),L.quaternion.setFromRotationMatrix(Nt.m),F.add(L);let Ft=new b(j([[0,.024],[.165,.024],[.18,.018],[.187,.004],[.188,-.05]],96),mt);L.add(I(Ft,`dial`));let It=[],Lt=Re(.013,.013,.008,20);for(let e=0;e<ne;e++){let t=new b(Lt,vt),n=Math.PI/2-e*x;t.position.set(Math.cos(n)*.152,Math.sin(n)*.152,.026),L.add(t),It.push(t)}let Rt=new r;Rt.position.z=.024,L.add(Rt);let zt=new b(Re(.124,.12,.016),P);zt.position.z=.008;let Bt=new b(ze(.1,.072,30),P);Bt.position.z=.052;let Vt=new b(j([[0,.094],[.06,.092],[.084,.088],[.091,.082],[.093,0]],64),ht);Vt.position.z=0;let Ht=new b(new ce(.014,.066,.006),gt);Ht.position.set(0,.047,.095),Rt.add(zt,Bt,Vt,Ht);for(let e of[zt,Bt,Vt,Ht])I(e,`dial`);let Ut=(e,t,n)=>{let i=M(e),a=new r;a.position.copy(e).multiplyScalar(.992),a.quaternion.setFromRotationMatrix(i.m);let o=new b(j([[.03,.012],[.042,.016],[.05,.012],[.054,0],[.054,-.03]],48),mt),s=new r,c=new b(j([[0,.044],[.022,.043],[.03,.039],[.033,.03],[.033,-.01]],48),t),l=new b(Re(.064,.064,.11,20),new g);return l.visible=!1,s.add(c),a.add(o,s,l),F.add(a),I(o,n),I(c,n),I(l,n),s},Wt=Ut(Pt(-.07,-.27),ht,`btnA`),Gt=Ut(Pt(.065,-.27),gt,`btnB`),Kt=Pt(-.005,-.385),qt=new b(new te(.014,16,12),bt);qt.position.copy(Kt).multiplyScalar(1.002),F.add(qt);let Jt=new b(new m(.02,.004,8,24),mt);Jt.position.copy(Kt).multiplyScalar(1),Jt.quaternion.setFromRotationMatrix(M(Kt).m),F.add(Jt);{let e=Pt(0,-.7),t=M(e),n=.25,r=.031,i=[],a=new ee,o=new h,s=new h;for(let c=-12;c<=12;c++)for(let l=-12;l<=12;l++){let u=(l+(c&1)*.5)*r,d=c*r*.866,f=Math.hypot(u,d);if(f>n)continue;let p=.0125*(.22+.78*(1-f/n)**.7);s.copy(e).addScaledVector(t.x,u).addScaledVector(t.y,d).normalize(),a.setFromRotationMatrix(M(s).m),o.set(p,p,.014),i.push(new de().compose(s.clone().multiplyScalar(.999),a.clone(),o.clone()))}let c=new le(Re(1,1,1,14),_t,i.length);i.forEach((e,t)=>c.setMatrixAt(t,e)),c.instanceMatrix.needsUpdate=!0,F.add(c)}let Yt=new b(new ie([[0,-1.39],[.4,-1.39],[.47,-1.383],[.515,-1.366],[.532,-1.34],[.524,-1.314],[.49,-1.296],[.38,-1.276],[.25,-1.249],[.18,-1.21],[.152,-1.15],[.146,-1.05],[.146,-.94]].map(([e,t])=>new y(e,t)),128),pt);F.add(I(Yt,`body`));let Xt=new b(new m(.158,.02,16,96),P);Xt.rotation.x=Math.PI/2,Xt.position.y=-.986,F.add(Xt);let Zt=new b(new m(.527,.007,10,128),P);Zt.rotation.x=Math.PI/2,Zt.position.y=-1.34,F.add(Zt);{let e=new m(.03,.0078,12,32).scale(1.55,1,1),t=new b(new m(.088,.016,20,72),P);t.position.y=Ee,F.add(I(t,`body`));for(let t of[-1,1]){let n=.3*t,r=new h(n,Math.sqrt(.91),0).normalize(),i=new b(j([[0,.03],[.034,.028],[.046,.012],[.052,-.02]],40),mt);i.position.copy(r).multiplyScalar(.995),i.quaternion.setFromRotationMatrix(M(r).m),F.add(i);let a=new b(new m(.034,.0105,12,36),P),o=r.clone().multiplyScalar(1).add(new h(0,.058,0));a.position.copy(o),F.add(a);let s=o.clone().add(new h(0,.03,0)),c=new h(.05*t,1.3479999999999999,0).clone().sub(s),l=c.length();c.normalize();let u=Math.max(3,Math.round(l/.075));u%2==0&&u++;let d=l/u,f=new h(0,0,1);for(let t=0;t<u;t++){let n=t%2==0?f.clone():new h().crossVectors(f,c).normalize(),r=new b(e,P);r.quaternion.setFromRotationMatrix(new de().makeBasis(c,n,new h().crossVectors(c,n))),r.position.copy(s).addScaledVector(c,d*(t+.5)),F.add(r)}}}let Qt=Be([[0,`rgba(0,0,0,0.9)`],[.28,`rgba(0,0,0,0.5)`],[.62,`rgba(0,0,0,0.12)`],[1,`rgba(0,0,0,0)`]]),$t=new g({map:Qt,transparent:!0,depthWrite:!1,toneMapped:!1}),en=new b(new c(1.7,1.7).rotateX(-Math.PI/2),$t);en.position.y=De,en.renderOrder=-2,C.add(en);let tn=Be([[0,`rgba(255,255,255,1)`],[.35,`rgba(255,255,255,0.45)`],[1,`rgba(255,255,255,0)`]]),nn=new g({map:tn,transparent:!0,depthWrite:!1,blending:5,blendEquation:100,blendSrc:204,blendDst:201,blendSrcAlpha:200,blendDstAlpha:201,color:0}),rn=new b(new c(2.6,1.2).rotateX(-Math.PI/2),nn);rn.position.set(0,-1.658,.2),rn.renderOrder=-1,C.add(rn);let an=new ae(16774892,1.5);an.position.set(-3.2,4.2,4);let on=new ae(14674175,1.6);on.position.set(3.6,1.6,-3.2);let sn=new ae(16777215,.8);sn.position.set(-3.6,.6,-2.6),C.add(an,on,sn);let R=0,cn=!0,ln=!1,un=!1,dn=e.paused,z=+!!e.night,B=z,V=0,fn=!1,H=!1,pn=0,mn=2,U={t:-1,to:0,swapped:!0},W=99,hn=.5,gn=.5,G=0,K=new k(O.yaw,6,2.6),q=new k(O.pitch,30,7.5),_n=new k(0,9,1.8),J=new k(0,260,17),Y=new k(0,900,38),X=new k(0,900,38),vn=new k(0,120,22),Z=0,yn=new y,bn=new y,xn=new y(.5,.5);function Sn(){let t=e.reduced;K.k=t?70:6,K.c=t?2*Math.sqrt(70):2.6,J.c=t?2*Math.sqrt(260):17}Sn(),e.reduced||(K.x=O.yaw-1.15,q.x=O.pitch+.12);function Cn(e){let t=Ye[e];t&&(Xe.material=t),ft(),W=0,It.forEach((t,n)=>t.material=n===e?yt:vt)}function wn(e){let t=Z+Fe((e-Pe(Z,ne))*x)/x;t=Math.round(t),Z=t,J.target=t*x}function Tn(t,n={}){t=Pe(Math.round(t),ne),t===R?(n.fromDial||wn(t),$()):(R=t,n.fromDial||wn(t),n.instant||e.reduced||!H?(U.t=-1,Cn(t)):U={t:0,to:t,swapped:!1},s.onChannel?.(t),$())}let En=(()=>{let e=[],t=.774,n=we*t/D,r=Te*t/D;for(let i=0;i<72;i++){let a=i/72*w,o=Math.cos(a),s=Math.sin(a),c=(Math.abs(o)**5+Math.abs(s)**5)**-.2,l=c*o,u=c*s,d=l,f=u;for(let e=0;e<8;e++){let e=d*d+f*.75*(f*.75),t=1+.055*e+.025*e*e;d=l/t,f=u/t}let p=d*n,ee=f*r;e.push(new h(p,ee,Ce*(1-(p*p+ee*ee)/(t*t))))}return e})(),Dn=new oe,On=new y;function kn(e,t){let r=n.getBoundingClientRect();On.set((e-r.left)/r.width*2-1,-((t-r.top)/r.height)*2+1),Dn.setFromCamera(On,N);let i=Dn.intersectObjects(wt,!1)[0];return i?{hit:i.object.userData.hit,uv:i.uv}:null}function An(e){let t=n.getBoundingClientRect(),r=e.clone().project(N);return{x:t.left+(r.x*.5+.5)*t.width,y:t.top+(-r.y*.5+.5)*t.height}}let jn=e=>e.preventDefault(),Q=null,Mn=null;function Nn(e){n.style.cursor=Q?.kind===`spin`&&Q.moved?`grabbing`:e===`screen`||e===`dial`||e===`btnA`||e===`btnB`?`pointer`:e===`body`?`grab`:``}let Pn=new a,Fn=new h,In=new h,Ln=new h;function Rn(e,t){C.updateMatrixWorld(),N.updateMatrixWorld();let r=n.getBoundingClientRect();return On.set((e-r.left)/r.width*2-1,-((t-r.top)/r.height)*2+1),Dn.setFromCamera(On,N),In.set(0,0,1).transformDirection(L.matrixWorld),Ln.set(0,0,.1).applyMatrix4(L.matrixWorld),Pn.setFromNormalAndCoplanarPoint(In,Ln),Dn.ray.intersectPlane(Pn,Fn)?(L.worldToLocal(Fn),{a:Math.atan2(Fn.y,Fn.x),d:Math.hypot(Fn.x,Fn.y)}):null}let zn=e=>{let t=e/x,n=Math.round(t),r=t-n;return(n+Math.sign(r)*(Math.abs(r)*2)**2.4/2)*x};function Bn(e){if(e.button!==0||Q)return;let t=kn(e.clientX,e.clientY),r=t?.hit===`dial`?`dial`:t?.hit===`btnA`?`btnA`:t?.hit===`btnB`?`btnB`:`spin`;if(r===`spin`&&!t)return;let i=r===`dial`?Rn(e.clientX,e.clientY):null;Q={id:e.pointerId,kind:r,hit:t?.hit??null,x0:e.clientX,y0:e.clientY,moved:!1,yaw0:K.x,pitch0:q.x,lt:performance.now(),ly:K.x,lp:q.x,vy:0,vp:0,ang:i&&i.d>.03?i.a:null,raw:J.x},r===`btnA`&&(Y.target=1),r===`btnB`&&(X.target=1),t?.hit===`screen`&&(G=.2);try{n.setPointerCapture(e.pointerId)}catch{}document.addEventListener(`selectstart`,jn),$()}function Vn(t){let r=n.getBoundingClientRect();if(bn.set(A((t.clientX-r.left)/r.width*2-1,-1.5,1.5),A((t.clientY-r.top)/r.height*2-1,-1.5,1.5)),!Q){let r=t.target===n?kn(t.clientX,t.clientY):null,i=r?.hit??null;if(i!==Mn&&(Mn=i,Nn(i)),vn.target=+(i===`screen`),i===`screen`&&r?.uv){let e=(r.uv.x-.5)/(we/(2*D)),t=(r.uv.y-.5)/(Te/(2*D));xn.set(A(e*.5+.5,0,1),A(t*.5+.5,0,1))}else xn.set(.5,.5);e.reduced||$();return}if(t.pointerId!==Q.id)return;let i=t.clientX-Q.x0,a=t.clientY-Q.y0;if(!Q.moved&&Math.hypot(i,a)>5&&(Q.moved=!0,Nn(Mn)),Q.kind===`spin`&&Q.moved){K.x=Q.yaw0+i*.0085,K.v=0,q.x=A(Q.pitch0+a*.004,-.45,.55),q.v=0;let e=performance.now(),t=Math.max(1,e-Q.lt)/1e3;Q.vy=Q.vy*.6+(K.x-Q.ly)/t*.4,Q.vp=Q.vp*.6+(q.x-Q.lp)/t*.4,Q.lt=e,Q.ly=K.x,Q.lp=q.x}else if(Q.kind===`dial`){let e=Rn(t.clientX,t.clientY);e&&e.d>.03&&(Q.ang!==null&&(Q.raw-=Fe(e.a-Q.ang)),Q.ang=e.a),J.x=zn(Q.raw),J.v=0,J.target=J.x;let n=Math.round(Q.raw/x);n!==Z&&(Z=n,Tn(Pe(n,ne),{fromDial:!0}))}else if(Q.kind===`btnA`||Q.kind===`btnB`){let e=kn(t.clientX,t.clientY),n=Q.kind===`btnA`?Y:X;n.target=+(e?.hit===Q.kind||Math.hypot(i,a)<16)}$()}function Hn(e){if(!Q||e.pointerId!==Q.id)return;let t=Q;Q=null,document.removeEventListener(`selectstart`,jn);try{n.releasePointerCapture(e.pointerId)}catch{}let r=e.type===`pointercancel`;if(t.kind===`spin`){if(t.moved){let e=performance.now()-t.lt>90;K.v=e?0:A(t.vy,-18,18),q.v=e?0:A(t.vp,-6,6)}else!r&&t.hit===`screen`&&(G=.5,s.onOpen?.(R))}else if(t.kind===`dial`)!t.moved&&!r?or():J.target=Z*x;else{let n=t.kind===`btnA`?Y:X;n.target=0;let i=kn(e.clientX,e.clientY);!r&&(i?.hit===t.kind||Math.hypot(e.clientX-t.x0,e.clientY-t.y0)<16)&&(t.kind===`btnA`?sr():or())}Nn(Mn),$()}function Un(){Q||(Mn=null,vn.target=0,xn.set(.5,.5),Nn(null),$())}n.addEventListener(`pointerdown`,Bn),n.addEventListener(`pointermove`,Vn),n.addEventListener(`pointerup`,Hn),n.addEventListener(`pointercancel`,Hn),n.addEventListener(`pointerleave`,Un),n.style.touchAction=`pan-y`;let Wn=t=>{if(t.target!==n&&!Q){let r=n.getBoundingClientRect();bn.set(A((t.clientX-r.left)/r.width*2-1,-1.5,1.5),A((t.clientY-r.top)/r.height*2-1,-1.5,1.5)),ln&&!e.reduced&&$()}};window.addEventListener(`pointermove`,Wn,{passive:!0});function Gn(){let e=Math.max(2,n.clientWidth),t=Math.max(2,n.clientHeight);S.setSize(e,t,!1),N.aspect=e/t;let r=_.degToRad(N.fov)/2,i=Math.atan(Math.tan(r)*N.aspect),a=Math.max(3.8/2/Math.tan(r),3/2/Math.tan(i)),o=.5*A((.95-N.aspect)/.5,0,1);N.position.set(0,.62,a),N.lookAt(0,-.03-o,0),N.updateProjectionMatrix()}let Kn=new ResizeObserver(()=>{Gn(),$()});Kn.observe(n),Gn();let qn=new h;function Jn(t){let n=e.reduced,r=!dn&&!n;r&&(pn+=t,mn+=t),Sn(),fn&&(V+=t*1e3,(n||V>=ke)&&(V=ke,fn=!1,H=!0,W=0));let i=V/ke;if(z+=(B-z)*(n?1:1-Math.exp(-t*5)),Math.abs(B-z)<.002&&(z=B),un&&(!Q||Q.kind!==`spin`||!Q.moved)){let e=O.yaw+Math.round((K.x-O.yaw)/w)*w;K.target=e,q.target=O.pitch,K.step(t),q.step(t)}_n.target=A(-K.v*.012,-.08,.08),_n.step(t),(!Q||Q.kind!==`dial`)&&J.step(t),Y.step(t),X.step(t),vn.step(t),yn.lerp(n?Ie:bn,n?1:1-Math.exp(-t*3)),gn+=(hn-gn)*(n?1:1-Math.exp(-t*6)),G*=Math.exp(-t*9);let a=r?Math.sin(pn*.85)*.035:0;xt.position.y=Ee+a,xt.rotation.z=_n.x+(r?Math.sin(pn*.53)*.018:0),xt.rotation.x=r?Math.sin(pn*.41+1.3)*.012:0,Ct.rotation.y=K.x+(r?Math.sin(pn*.31)*.06:0)+yn.x*.09+(gn-.5)*.5,Ct.rotation.x=q.x+yn.y*.05+(gn-.5)*-.1,Rt.rotation.z=-J.x,Wt.position.z=-.022*Y.x,Gt.position.z=-.022*X.x;let o=0,s=0,c=0;if(U.t>=0){U.t+=t*1e3;let e=U.t/Oe;o=e<1?Math.sin(Math.PI*Math.min(e,1))**.6:0,s=Math.exp(-(((e-.4)/.14)**2))*.95,c=e<.4?-.12*_.smoothstep(e,.1,.4):.55*Math.exp(-(e-.4)*6.5)*Math.cos((e-.4)*7.5),!U.swapped&&e>=.4&&(U.swapped=!0,Cn(U.to),G=Math.max(G,.35)),e>=1.5&&(U.t=-1)}W+=t;let l=H?W<1.8?1:Math.max(0,1-(W-1.8)/.35):0,u=kt.uniforms;u.uTime.value=mn,u.uPower.value=i,u.uTear.value=o,u.uStatic.value=s,u.uRoll.value=c,u.uFlash.value=G,u.uOSDa.value=l,u.uHover.value=vn.x*+!!H,u.uNight.value=z,u.uRefl.value=_.lerp(1,.8,z),qe.uTime.value=mn,qe.uNight.value=z,qe.uMouse.value.lerp(xn,1-Math.exp(-t*6)),pt.color.lerpColors(Ae,je,z),pt.roughness=_.lerp(.34,.24,z),_t.color.lerpColors(Me,Ne,z),_t.metalness=_.lerp(.2,.85,z),_t.roughness=_.lerp(.55,.3,z),C.environment=z>.5?Ge:We,C.environmentIntensity=_.lerp(1,.9,z),an.intensity=_.lerp(1.5,.9,z),on.intensity=_.lerp(1.2,2.8,z),sn.intensity=_.lerp(.6,1.6,z);let d=1-Math.exp(-t*7);ct.setRGB(0,0,0);for(let e=0;e<3;e++)st[e].lerp(ot[e],d),jt[e].color.copy(st[e]),jt[e].intensity=(1.4+s*1.2+G)*i**2*_.lerp(1,1.35,z),ct.r+=st[e].r/3,ct.g+=st[e].g/3,ct.b+=st[e].b/3;u.uTint.value.copy(ct),bt.color.set(H||fn?`#4CC38A`:`#1d2a23`),qn.setFromMatrixPosition(F.matrixWorld),C.updateMatrixWorld(),qn.set(0,-1.38,0).applyMatrix4(F.matrixWorld);let f=qn.y-De;en.position.x=qn.x,en.position.z=qn.z;let p=.9+f*.9;en.scale.set(p,1,p),$t.opacity=A(.95-f*1.6,.15,.9)*_.lerp(.55,.9,z),rn.position.x=qn.x,nn.color.copy(ct).multiplyScalar(_.lerp(.35,.9,z)*i)}function Yn(){S.setRenderTarget(Ke),S.render(Ze,Qe);let e=performance.now();!it&&e-at>160&&(at=e,it=!0,S.setRenderTarget($e),S.render(nt,Qe),S.readRenderTargetPixelsAsync($e,0,0,3,1,rt).then(()=>{for(let e=0;e<3;e++)ot[e].setRGB(rt[e*4]/255,rt[e*4+1]/255,rt[e*4+2]/255,me)}).catch(()=>{}).finally(()=>{it=!1})),S.setRenderTarget(null),S.render(C,N)}function Xn(){let t=[];return Q&&t.push(`drag`),K.busy&&t.push(`yaw`),q.busy&&t.push(`pitch`),_n.busy&&t.push(`roll`),J.busy&&t.push(`dial`),(Y.busy||X.busy)&&t.push(`press`),vn.busy&&t.push(`hover`),U.t>=0&&t.push(`change`),fn&&t.push(`power`),z!==B&&t.push(`night`),Math.abs(gn-hn)>1e-4&&t.push(`scroll`),G>.01&&t.push(`flash`),H&&W<2.3&&t.push(`osd`),yn.distanceTo(e.reduced?Ie:bn)>.001&&t.push(`look`),t.join(`,`)}function Zn(){return!!Q||K.busy||q.busy||_n.busy||J.busy||Y.busy||X.busy||vn.busy||U.t>=0||fn||z!==B||Math.abs(gn-hn)>1e-4||G>.01||H&&W<2.3||yn.distanceTo(e.reduced?Ie:bn)>.001}let Qn=0,$n=0,er=0;function tr(t){if(Qn=0,!cn||!ln||document.hidden){$n=0;return}let n=$n?Math.min(.05,(t-$n)/1e3):1/60;$n=t,Jn(n),Yn(),er++,!dn&&!e.reduced||Zn()?Qn=requestAnimationFrame(tr):$n=0}function $(){!Qn&&cn&&(Qn=requestAnimationFrame(tr))}let nr=new IntersectionObserver(t=>{let n=t[t.length-1];ln=n?.isIntersecting??!0,ln&&!un&&(e.reduced||(n?.intersectionRatio??1)>=.5)&&(un=!0,e.reduced?(V=ke,H=!0,W=0):(fn=!0,V=0)),$()},{threshold:[0,.25,.5,.75,1]});nr.observe(n);let rr=()=>$();document.addEventListener(`visibilitychange`,rr);let ir=t.on(`theme`,({night:e})=>{B=+!!e,$()}),ar=t.on(`pause`,({paused:e})=>{dn=e,$()});Cn(0),W=99,document.fonts?.load&&document.fonts.load(`600 40px ${dt}`).then(()=>ft()).catch(()=>{});function or(){Tn(R+1)}function sr(){Tn(R-1)}let cr={setChannel(e,t){Tn(e,{instant:t?.instant})},next:or,prev:sr,channel:()=>R,screenRect(){C.updateMatrixWorld(),N.updateMatrixWorld();let e=1/0,t=1/0,n=-1/0,r=-1/0,i=new h;for(let a of En){i.copy(a).applyMatrix4(At.matrixWorld);let o=An(i);e=Math.min(e,o.x),t=Math.min(t,o.y),n=Math.max(n,o.x),r=Math.max(r,o.y)}return new DOMRect(e,t,n-e,r-t)},dialRing(e){return C.updateMatrixWorld(),N.updateMatrixWorld(),An(new h(Math.cos(e)*.1,Math.sin(e)*.1,.1).applyMatrix4(L.matrixWorld))},debug(){C.updateMatrixWorld(),N.updateMatrixWorld();let e=(e,t)=>An((t??new h).applyMatrix4(e.matrixWorld));return{cur:R,frames:er,why:Xn(),yaw:K.x,pitch:q.x,dialK:Z,dial:J.x,pressA:Y.x,pressB:X.x,dragging:Q?Q.kind+(Q.moved?`*`:``):null,changeT:U.t,powerT:V,osdT:W,flash:G,night:z,pts:{dial:e(Rt,new h(0,0,.09)),btnA:e(Wt,new h(0,0,.04)),btnB:e(Gt,new h(0,0,.04)),screen:e(At),body:e(F,new h(-.6,-.55,.55)),ring:e(F,new h(0,Ee,0))},cursor:n.style.cursor,raw:Q?.raw??J.x}},setNight(e){B=+!!e,$()},setPaused(e){dn=e,$()},setScroll(e){hn=A(e,0,1),$()},dispose(){cn=!1,cancelAnimationFrame(Qn),delete n.__tv,nr.disconnect(),Kn.disconnect(),ir(),ar(),document.removeEventListener(`visibilitychange`,rr),document.removeEventListener(`selectstart`,jn),window.removeEventListener(`pointermove`,Wn),n.removeEventListener(`pointerdown`,Bn),n.removeEventListener(`pointermove`,Vn),n.removeEventListener(`pointerup`,Hn),n.removeEventListener(`pointercancel`,Hn),n.removeEventListener(`pointerleave`,Un);let e=new Set,t=new Set;for(let n of[C,Ze,nt])n.traverse(n=>{let r=n;r.geometry&&t.add(r.geometry),r.material&&(Array.isArray(r.material)?r.material:[r.material]).forEach(t=>e.add(t))});Ye.forEach(t=>e.add(t)),t.forEach(e=>e.dispose()),e.forEach(e=>e.dispose()),[ut,Qt,tn,We,Ge].forEach(e=>e.dispose()),Ke.dispose(),$e.dispose(),He.dispose(),S.dispose()}};return n.__tv=cr,cr}export{C as _,we as a,Ce as c,Se as d,Le as f,j as g,ze as h,Te as i,w as l,M as m,xe as n,Ee as o,Re as p,T as r,Ve as s,E as t,D as u,ve as v};
