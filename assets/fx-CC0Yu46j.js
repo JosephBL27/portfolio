@@ -1,1 +1,0 @@
-function e(){let e=document.createElement(`i`);return e.className=`cv-fx`,e.setAttribute(`aria-hidden`,`true`),[78,52,92,64,38].forEach((t,n)=>{let r=document.createElement(`i`);r.className=`cv-fx__m`,r.style.cssText=`--x:${t}%;--d:${(5.2+n%3*1.1).toFixed(1)}s;--w:${(n*2.3+.8).toFixed(1)}s`,e.append(r)}),e}export{e as t};
